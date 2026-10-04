@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>adtear</title>
+<style>
+  :root {
+    --bg: #10141a; --panel: #181e27; --panel-2: #12171f; --line: #2c3644;
+    --text: #e8eef7; --muted: #9aa8bc; --accent: #7ddec2; --warn: #f0b429;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.45 ui-sans-serif, system-ui, sans-serif; }
+  header, main { width: min(1100px, calc(100% - 32px)); margin: 0 auto; }
+  header { padding: 28px 0 8px; display: flex; justify-content: space-between; gap: 16px; align-items: flex-end; }
+  h1 { margin: 0; font-size: 32px; letter-spacing: -0.03em; }
+  h2 { margin: 0; font-size: 18px; }
+  .kicker { color: var(--accent); font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; margin: 0 0 6px; }
+  .lede { color: var(--muted); max-width: 62ch; }
+  .mode { border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 6px 12px; color: var(--muted); font-size: 13px; }
+  form { display: grid; grid-template-columns: 160px 220px 1fr auto; gap: 10px; align-items: end; padding: 14px; margin: 16px 0 20px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; }
+  label { display: flex; flex-direction: column; gap: 6px; color: var(--muted); font-size: 13px; }
+  input, textarea, button { font: inherit; color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
+  textarea { min-height: 64px; resize: vertical; }
+  button { background: var(--accent); color: #06231c; border: 0; font-weight: 650; cursor: pointer; height: 42px; }
+  button:disabled { opacity: 0.6; cursor: wait; }
+  .board { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; padding-bottom: 40px; }
+  article { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 8px; }
+  .who, .hint { color: var(--muted); font-size: 13px; margin: 0; }
+  .copy { margin: 0; }
+  dl { margin: 0; display: grid; gap: 8px; }
+  dt { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+  dd { margin: 0; }
+  .choice { color: var(--accent); font-weight: 650; }
+  .abstain { color: var(--warn); font-weight: 650; }
+  @media (max-width: 800px) { form { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <p class="kicker">ad labels</p>
+    <h1>adtear</h1>
+    <p class="lede">A board of sample ad texts. Laya labels offer (choice), hook (score), and audience (choice). Nothing is scraped. The copy stays as written.</p>
+  </div>
+  <div class="mode" id="mode" role="status">Laya not running</div>
+</header>
+<main>
+  <form id="form">
+    <label>Id <input name="id" maxlength="80" placeholder="optional" /></label>
+    <label>Advertiser <input name="advertiser" required maxlength="200" placeholder="Fictional name" /></label>
+    <label>Text <textarea name="text" required maxlength="8000" placeholder="The ad line"></textarea></label>
+    <button type="submit">Add</button>
+  </form>
+  <div id="board" class="board"></div>
+</main>
+<script>
+const board = document.querySelector("#board");
+const mode = document.querySelector("#mode");
+const form = document.querySelector("#form");
+const DOWN = "Laya not running";
+let criteria = { offer: {}, hook: {}, audience: {} };
+
+function field(name, label) {
+  const wrap = document.createElement("div");
+  const dt = document.createElement("dt");
+  dt.textContent = name;
+  const dd = document.createElement("dd");
+  const choice = document.createElement("div");
+  if (!label) {
+    choice.className = "hint";
+    choice.textContent = "not scored";
+    dd.append(choice);
+  } else if (label.status === "abstain") {
+    choice.className = "abstain";
+    choice.textContent = "abstain";
+    dd.append(choice);
+  } else if (name === "hook") {
+    choice.className = "choice";
+    choice.textContent = label.level;
+    const hint = document.createElement("div");
+    hint.className = "hint";
+    hint.textContent = (criteria.hook && criteria.hook[label.level]) || "";
+    const value = document.createElement("div");
+    value.className = "hint";
+    value.textContent = "score " + Number(label.value).toFixed(2);
+    dd.append(choice, hint, value);
+  } else {
+    choice.className = "choice";
+    choice.textContent = label.choice;
+    const hint = document.createElement("div");
+    hint.className = "hint";
+    hint.textContent = (criteria[name] && criteria[name][label.choice]) || "";
+    dd.append(choice, hint);
+  }
+  wrap.append(dt, dd);
+  return wrap;
+}
+
+function card(ad) {
+  const el = document.createElement("article");
+  const h = document.createElement("h2");
+  h.textContent = ad.advertiser;
+  const who = document.createElement("p");
+  who.className = "who";
+  who.textContent = ad.id + (ad.model ? " · " + ad.model : "");
+  const copy = document.createElement("p");
+  copy.className = "copy";
+  copy.textContent = ad.text;
+  const dl = document.createElement("dl");
+  dl.append(field("offer", ad.offer), field("hook", ad.hook), field("audience", ad.audience));
+  el.append(h, who, copy, dl);
+  return el;
+}
+
+function paint(ads) {
+  board.replaceChildren(...(ads || []).map(card));
+}
+
+async function load() {
+  const res = await fetch("/api/board");
+  const data = await res.json();
+  criteria = data.criteria || criteria;
+  paint(data.ads || []);
+  return data.ads || [];
+}
+
+async function scoreBoard() {
+  await load();
+  const health = await fetch("/api/health");
+  if (!health.ok) {
+    mode.textContent = DOWN;
+    return;
+  }
+  mode.textContent = "loading model";
+  const res = await fetch("/api/score", { method: "POST" });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    mode.textContent = DOWN;
+    await load();
+    return;
+  }
+  mode.textContent = "laya";
+  paint(data.ads || []);
+}
+
+form.addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const fd = new FormData(form);
+  const button = form.querySelector("button");
+  button.disabled = true;
+  mode.textContent = "loading model";
+  try {
+    const ad = { advertiser: fd.get("advertiser"), text: fd.get("text") };
+    const id = String(fd.get("id") || "").trim();
+    if (id) ad.id = id;
+    const res = await fetch("/api/batch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ads: [ad] }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      mode.textContent = data.error === DOWN || res.status === 503 ? DOWN : (data.error || DOWN);
+      await load();
+      return;
+    }
+    form.reset();
+    mode.textContent = "laya";
+    await load();
+  } catch {
+    mode.textContent = DOWN;
+  } finally {
+    button.disabled = false;
+  }
+});
+
+scoreBoard().catch(() => { mode.textContent = DOWN; });
+</script>
+</body>
+</html>
